@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+    <title>District Network Map</title>
+
+    <style>
+
+        html,
+        body,
+        #map {
+
+            height: 100%;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
+        #districtSelector {
+
+            position: absolute;
+
+            top: 15px;
+            left: 15px;
+
+            z-index: 999;
+
+            width: 260px;
+
+            padding: 10px;
+
+            border-radius: 10px;
+
+            background: white;
+
+            border: 1px solid #ccc;
+
+            box-shadow: 0px 3px 12px rgba(0,0,0,0.3);
+
+            font-size: 14px;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+    <select id="districtSelector">
+
+        <option value="ALL">
+            Show All Districts
+        </option>
+
+    </select>
+
+    <div id="map"></div>
+
+    <script>
+
+        let map;
+
+        let markers = [];
+
+        let lines = [];
+
+        let rawData = [];
+
+        // =====================================================
+        // NUMBER FORMAT
+        // =====================================================
+
+        function formatNumber(num, normal = false) {
+
+            if (normal) {
+                return num.toFixed(2);
+            }
+
+            if (num >= 10000000) {
+                return (num / 10000000).toFixed(1) + "Cr";
+            }
+
+            if (num >= 100000) {
+                return (num / 100000).toFixed(1) + "L";
+            }
+
+            if (num >= 1000) {
+                return (num / 1000).toFixed(1) + "k";
+            }
+
+            return num.toFixed(2);
+
+        }
+
+        // =====================================================
+        // INIT MAP
+        // =====================================================
+
+        async function initMap() {
+
+            map = new google.maps.Map(
+                document.getElementById("map"),
+                {
+
+                    zoom: 7,
+
+                    center: {
+                        lat: 26.2,
+                        lng: 91.7
+                    }
+
+                }
+            );
+
+            const response =
+                await fetch("map_data.json");
+
+            rawData = await response.json();
+
+            populateDropdown();
+
+            renderMap(rawData);
+
+            document
+                .getElementById("districtSelector")
+                .addEventListener("change", function () {
+
+                    const value = this.value;
+
+                    if (value === "ALL") {
+
+                        renderMap(rawData);
+
+                    } else {
+
+                        const filtered =
+                            rawData.filter(
+                                item =>
+                                item.district === value
+                            );
+
+                        renderMap(filtered);
+
+                    }
+
+                });
+
+        }
+
+        // =====================================================
+        // DROPDOWN
+        // =====================================================
+
+        function populateDropdown() {
+
+            const dropdown =
+                document.getElementById(
+                    "districtSelector"
+                );
+
+            const districts =
+                [...new Set(
+                    rawData.map(
+                        item => item.district
+                    )
+                )];
+
+            districts.sort();
+
+            districts.forEach(district => {
+
+                const option =
+                    document.createElement("option");
+
+                option.value = district;
+
+                option.textContent = district;
+
+                dropdown.appendChild(option);
+
+            });
+
+        }
+
+        // =====================================================
+        // CLEAR MAP
+        // =====================================================
+
+        function clearMap() {
+
+            markers.forEach(
+                marker => marker.setMap(null)
+            );
+
+            lines.forEach(
+                line => line.setMap(null)
+            );
+
+            markers = [];
+
+            lines = [];
+
+        }
+
+        // =====================================================
+        // RENDER MAP
+        // =====================================================
+
+        function renderMap(data) {
+
+            clearMap();
+
+            const districtCache = {};
+
+            const minTdcByDistrict = {};
+
+            data.forEach(item => {
+
+                if (
+                    !minTdcByDistrict[item.district]
+                    ||
+                    item.tdc_pt <
+                    minTdcByDistrict[item.district].tdc_pt
+                ) {
+
+                    minTdcByDistrict[item.district] =
+                        item;
+                }
+
+            });
+
+            data.forEach((item, index) => {
+
+                // =============================================
+                // DISTRICT MARKER
+                // =============================================
+
+                if (!districtCache[item.district]) {
+
+                    const districtMarker =
+                        new google.maps.Marker({
+
+                            position: {
+
+                                lat: item.district_lat,
+                                lng: item.district_lng
+
+                            },
+
+                            map: map,
+
+                            title: item.district,
+
+                            optimized: true,
+
+                            icon: {
+
+                                path:
+                                    google.maps.SymbolPath.CIRCLE,
+
+                                scale: 15,
+
+                                fillColor: "#0066ff",
+
+                                fillOpacity: 1,
+
+                                strokeWeight: 3,
+
+                                strokeColor: "#003399"
+
+                            }
+
+                        });
+
+                    const totalDumps =
+                        data.filter(
+                            x => x.district === item.district
+                        ).length;
+
+                    const districtPopup =
+                        new google.maps.InfoWindow({
+
+                            content: `
+
+                                <div style="
+                                    width:170px;
+                                    font-family:Arial;
+                                    line-height:1.5;
+                                ">
+
+                                    <h3 style="
+                                        color:#5a189a;
+                                        margin-bottom:6px;
+                                        font-size:14px;
+                                    ">
+                                        ${item.district}
+                                    </h3>
+
+                                    <table style="
+                                        width:100%;
+                                        font-size:11px;
+                                        line-height:1.6;
+                                    ">
+
+                                        <tr>
+                                            <td>
+                                                <b>Total Volume</b>
+                                            </td>
+
+                                            <td style="
+                                                text-align:right;
+                                            ">
+                                                ${formatNumber(item.district_total_volume)}
+                                            </td>
+                                        </tr>
+
+                                        <tr>
+                                            <td>
+                                                <b>Total Dumps</b>
+                                            </td>
+
+                                            <td style="
+                                                text-align:right;
+                                            ">
+                                                ${totalDumps}
+                                            </td>
+                                        </tr>
+
+                                    </table>
+
+                                </div>
+
+                            `
+                        });
+
+                    districtMarker.addListener(
+                        "click",
+                        () => districtPopup.open(
+                            map,
+                            districtMarker
+                        )
+                    );
+
+                    markers.push(districtMarker);
+
+                    districtCache[item.district] = true;
+                }
+
+                // =============================================
+                // MIN TDC LOGIC
+                // =============================================
+
+                const isMinTdc =
+                    minTdcByDistrict[item.district]
+                    .source === item.source;
+
+                // =============================================
+                // MAX SOB LOGIC
+                // =============================================
+
+                const maxSob =
+                    Math.max(
+                        ...data
+                            .filter(
+                                x => x.district === item.district
+                            )
+                            .map(
+                                x => x.volume_percentage
+                            )
+                    );
+
+                const isMaxSob =
+                    item.volume_percentage === maxSob;
+
+                // =============================================
+                // SOURCE MARKER
+                // =============================================
+
+                const sourceMarker =
+                    new google.maps.Marker({
+
+                        position: {
+
+                            lat: item.source_lat,
+                            lng: item.source_lng
+
+                        },
+
+                        map: map,
+
+                        title: item.source,
+
+                        optimized: true,
+
+                        icon: {
+
+                            path:
+                                google.maps.SymbolPath.CIRCLE,
+
+                            scale:
+                                isMinTdc
+                                ? 10
+                                : isMaxSob
+                                ? 9
+                                : 6,
+
+                            fillColor:
+                                isMinTdc
+                                ? "#ff0000"
+                                : isMaxSob
+                                ? "#FFD700"
+                                : "#00aa00",
+
+                            fillOpacity: 1,
+
+                            strokeWeight: 2,
+
+                            strokeColor:
+                                isMinTdc
+                                ? "#990000"
+                                : isMaxSob
+                                ? "#b8860b"
+                                : "#006600"
+
+                        }
+
+                    });
+
+                // =============================================
+                // POPUP
+                // =============================================
+
+                const popup =
+                    new google.maps.InfoWindow({
+
+                        pixelOffset:
+                            new google.maps.Size(
+
+                                // small horizontal spread
+                                ((index % 3) - 1) * 35,
+
+                                // small vertical spread
+                                -((index % 4) * 25)
+
+                            ),
+
+                        content: `
+
+                            <div style="
+                                width:180px;
+                                font-family:Arial;
+                                line-height:1.5;
+                            ">
+
+                                <h3 style="
+                                    color:#5a189a;
+                                    margin-bottom:6px;
+                                    font-size:13px;
+                                ">
+
+                                    ${item.source}
+
+                                    ${item.source_name
+                                    ? " - " + item.source_name
+                                    : ""}
+
+                                    ${isMinTdc
+                                    ? "(MIN TDC)"
+                                    : ""}
+
+                                </h3>
+
+                                <table style="
+                                    width:100%;
+                                    font-size:11px;
+                                    line-height:1.5;
+                                ">
+
+                                    <tr>
+                                        <td><b>SOB</b></td>
+                                        <td style="text-align:right;">
+                                            ${formatNumber(item.volume)}
+                                            (${item.volume_percentage.toFixed(2)}%)
+                                        </td>
+                                    </tr>
+
+                                    <tr>
+                                        <td><b>PL</b></td>
+                                        <td style="text-align:right;">
+                                            ${formatNumber(item.primary_lead)}
+                                        </td>
+                                    </tr>
+
+                                    <tr>
+                                        <td><b>SL</b></td>
+                                        <td style="text-align:right;">
+                                            ${formatNumber(item.secondary_lead)}
+                                        </td>
+                                    </tr>
+
+                                    <tr>
+                                        <td><b>TDC PT</b></td>
+                                        <td style="text-align:right;">
+                                            ${formatNumber(item.tdc_pt, true)}
+                                        </td>
+                                    </tr>
+
+                                </table>
+
+                            </div>
+
+                        `
+                    });
+
+                sourceMarker.addListener(
+                    "click",
+                    () => popup.open(map, sourceMarker)
+                );
+
+                markers.push(sourceMarker);
+
+                // =============================================
+                // LINE
+                // =============================================
+
+                const line =
+                    new google.maps.Polyline({
+
+                        path: [
+
+                            {
+                                lat: item.source_lat,
+                                lng: item.source_lng
+                            },
+
+                            {
+                                lat: item.district_lat,
+                                lng: item.district_lng
+                            }
+
+                        ],
+
+                        geodesic: true,
+
+                        strokeColor: "#8000ff",
+
+                        strokeOpacity: 0.8,
+
+                        strokeWeight: 2
+
+                    });
+
+                line.setMap(map);
+
+                lines.push(line);
+
+            });
+
+        }
+
+    </script>
+
+    <script async defer
+        src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAB8S1RyN8QyDH3YMW3O_jx3UTJrSFrWfM&callback=initMap">
+    </script>
+
+</body>
+
+</html>
